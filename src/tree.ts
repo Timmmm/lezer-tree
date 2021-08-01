@@ -55,7 +55,7 @@ export class NodeProp<T> {
   /// object](#tree.NodeType^match) or function that returns undefined
   /// if the node type doesn't get this prop, and the prop's value if
   /// it does.
-  add<NN extends string>(match: {[selector: string]: T} | ((type: NodeType<NN>) => T | undefined)): NodePropSource {
+  add<NN extends string = string>(match: {[selector: string]: T} | ((type: NodeType<NN>) => T | undefined)): NodePropSource {
     if (typeof match != "function") match = NodeType.match(match)
     return (type) => {
       let result = (match as (type: NodeType<NN>) => T | undefined)(type)
@@ -95,7 +95,7 @@ const enum NodeFlag {
 const noProps: {[propID: number]: any} = Object.create(null)
 
 /// Each node in a syntax tree has a node type associated with it.
-export class NodeType<NN extends string> {
+export class NodeType<NN extends string = string> {
   /// @internal
   constructor(
     /// The name of the node type. Not necessarily unique, but if the
@@ -111,7 +111,7 @@ export class NodeType<NN extends string> {
     /// @internal
     readonly flags: number = 0) {}
 
-  static define<NN extends string>(spec: {
+  static define<NN extends string = string>(spec: {
     /// The ID of the node type. When this type is used in a
     /// [set](#tree.NodeSet), the ID must correspond to its index in
     /// the type array.
@@ -179,7 +179,7 @@ export class NodeType<NN extends string> {
   /// [`NodeProp.add`](#tree.NodeProp.add). You can put multiple
   /// names, separated by spaces, in a single property name to map
   /// multiple node names to a single value.
-  static match<T, NN extends string>(map: {[selector: string]: T}): (node: NodeType<NN>) => T | undefined {
+  static match<T, NN extends string = string>(map: {[selector: string]: T}): (node: NodeType<NN>) => T | undefined {
     let direct = Object.create(null)
     for (let prop in map)
       for (let name of prop.split(" ")) direct[name] = map[prop]
@@ -200,7 +200,7 @@ export class NodeType<NN extends string> {
 /// from the same set. A set can have a maximum of 2**16 (65536)
 /// node types in it, so that the ids fit into 16-bit typed array
 /// slots.
-export class NodeSet<NN extends string> {
+export class NodeSet<NN extends string = string> {
   /// Create a set with the given types. The `id` property of each
   /// type should correspond to its position within the array.
   constructor(
@@ -244,7 +244,7 @@ export class NodeSet<NN extends string> {
 /// use the `TreeCursor` interface instead, which provides a view on
 /// some part of this data structure, and can be used to move around
 /// to adjacent nodes.
-export class Tree<NN extends string> {
+export class Tree<NN extends string = string> {
   /// Construct a new tree. You usually want to go through
   /// [`Tree.build`](#tree.Tree^build) instead.
   constructor(
@@ -343,18 +343,18 @@ export class Tree<NN extends string> {
 
   /// Build a tree from a postfix-ordered buffer of node information,
   /// or a cursor over such a buffer.
-  static build<NN extends string>(data: BuildData<NN>) { return buildTree(data) }
+  static build<NN extends string = string>(data: BuildData<NN>) { return buildTree(data) }
 }
 
 // For trees that need a context hash attached, we're using this
 // kludge which assigns an extra property directly after
 // initialization (creating a single new object shape).
-function withHash<NN extends string>(tree: Tree<NN>, hash: number) {
+function withHash<NN extends string = string>(tree: Tree<NN>, hash: number) {
   if (hash) (tree as any).contextHash = hash
   return tree
 }
 
-type BuildData<NN extends string> = {
+type BuildData<NN extends string = string> = {
   /// The buffer or buffer cursor to read the node data from.
   ///
   /// When this is an array, it should contain four values for every
@@ -399,7 +399,7 @@ type BuildData<NN extends string> = {
 /// node. In such a buffer, nodes are stored in prefix order (parents
 /// before children, with the endIndex of the parent indicating which
 /// children belong to it)
-export class TreeBuffer<NN extends string> {
+export class TreeBuffer<NN extends string = string> {
   /// Create a tree buffer @internal
   constructor(
     /// @internal
@@ -466,7 +466,7 @@ const enum After { None = -1e8 }
 /// tree. When iterating over large amounts of nodes, you may want to
 /// use a mutable [cursor](#tree.TreeCursor) instead, which is more
 /// efficient.
-export interface SyntaxNode<NN extends string> {
+export interface SyntaxNode<NN extends string = string> {
   /// The type of the node.
   type: NodeType<NN>
   /// The name of the node (`.type.name`).
@@ -510,7 +510,7 @@ export interface SyntaxNode<NN extends string> {
   getChildren(type: string | number, before?: string | number | null, after?: string | number | null): SyntaxNode<NN>[]
 }
 
-class TreeNode<NN extends string> implements SyntaxNode<NN> {
+class TreeNode<NN extends string = string> implements SyntaxNode<NN> {
   constructor(readonly node: Tree<NN>,
               readonly from: number,
               readonly index: number,
@@ -585,7 +585,7 @@ class TreeNode<NN extends string> implements SyntaxNode<NN> {
   toString() { return this.node.toString() }
 }
 
-function getChildren<NN extends string>(node: SyntaxNode<NN>, type: string | number, before: string | number | null, after: string | number | null): SyntaxNode<NN>[] {
+function getChildren<NN extends string = string>(node: SyntaxNode<NN>, type: string | number, before: string | number | null, after: string | number | null): SyntaxNode<NN>[] {
   let cur = node.cursor, result: SyntaxNode<NN>[] = []
   if (!cur.firstChild()) return result
   if (before != null) while (!cur.type.is(before)) if (!cur.nextSibling()) return result
@@ -596,14 +596,14 @@ function getChildren<NN extends string>(node: SyntaxNode<NN>, type: string | num
   }
 }
 
-class BufferContext<NN extends string> {
+class BufferContext<NN extends string = string> {
   constructor(readonly parent: TreeNode<NN>,
               readonly buffer: TreeBuffer<NN>,
               readonly index: number,
               readonly start: number) {}
 }
 
-class BufferNode<NN extends string> implements SyntaxNode<NN> {
+class BufferNode<NN extends string = string> implements SyntaxNode<NN> {
   type: NodeType<NN>
 
   get name() { return this.type.name }
@@ -675,7 +675,7 @@ class BufferNode<NN extends string> implements SyntaxNode<NN> {
 
 /// A tree cursor object focuses on a given node in a syntax tree, and
 /// allows you to move to adjacent nodes.
-export class TreeCursor<NN extends string> {
+export class TreeCursor<NN extends string = string> {
   /// The node's type.
   type!: NodeType<NN>
 
@@ -895,7 +895,7 @@ export class TreeCursor<NN extends string> {
   }
 }
 
-function hasChild<NN extends string>(tree: Tree<NN>): boolean {
+function hasChild<NN extends string = string>(tree: Tree<NN>): boolean {
   return tree.children.some(ch => !ch.type.isAnonymous || ch instanceof TreeBuffer || hasChild(ch))
 }
 
@@ -939,7 +939,7 @@ class FlatBufferCursor implements BufferCursor {
 
 const BalanceBranchFactor = 8
 
-function buildTree<NN extends string>(data: BuildData<NN>) {
+function buildTree<NN extends string = string>(data: BuildData<NN>) {
   let {buffer, nodeSet, topID = 0,
        maxBufferLength = DefaultBufferLength,
        reused = [],
@@ -1061,7 +1061,7 @@ function buildTree<NN extends string>(data: BuildData<NN>) {
   return new Tree(types[topID], children.reverse(), positions.reverse(), length)
 }
 
-function balanceRange<NN extends string>(outerType: NodeType<NN>, innerType: NodeType<NN>,
+function balanceRange<NN extends string = string>(outerType: NodeType<NN>, innerType: NodeType<NN>,
                       children: readonly (Tree<NN> | TreeBuffer<NN>)[], positions: readonly number[],
                       from: number, to: number,
                       start: number, maxBufferLength: number,
@@ -1106,7 +1106,7 @@ function balanceRange<NN extends string>(outerType: NodeType<NN>, innerType: Nod
   return withHash(new Tree(outerType, localChildren, localPositions, length), contextHash)
 }
 
-function containsType<NN extends string>(nodes: readonly (Tree<NN> | TreeBuffer<NN>)[], type: NodeType<NN>) {
+function containsType<NN extends string = string>(nodes: readonly (Tree<NN> | TreeBuffer<NN>)[], type: NodeType<NN>) {
   for (let elt of nodes) if (elt.type == type) return true
   return false
 }
@@ -1133,7 +1133,7 @@ const enum Open { Start = 1, End = 2 }
 /// in new parses. Use the static
 /// [`applyChanges`](#tree.TreeFragment^applyChanges) method to update
 /// fragments for document changes.
-export class TreeFragment<NN extends string> {
+export class TreeFragment<NN extends string = string> {
   constructor(
     /// The start of the unchanged range pointed to by this fragment.
     /// This refers to an offset in the _updated_ document (as opposed
@@ -1158,7 +1158,7 @@ export class TreeFragment<NN extends string> {
   /// Apply a set of edits to an array of fragments, removing or
   /// splitting fragments as necessary to remove edited ranges, and
   /// adjusting offsets for fragments that moved.
-  static applyChanges<NN extends string>(fragments: readonly TreeFragment<NN>[], changes: readonly ChangedRange[], minGap = 128) {
+  static applyChanges<NN extends string = string>(fragments: readonly TreeFragment<NN>[], changes: readonly ChangedRange[], minGap = 128) {
     if (!changes.length) return fragments
     let result: TreeFragment<NN>[] = []
     let fI = 1, nextF = fragments.length ? fragments[0] : null
@@ -1189,7 +1189,7 @@ export class TreeFragment<NN extends string> {
   /// with a tree with content from the new tree. When `partial` is
   /// true, the parse is treated as incomplete, and the token at its
   /// end is not included in [`safeTo`](#tree.TreeFragment.safeTo).
-  static addTree<NN extends string>(tree: Tree<NN>, fragments: readonly TreeFragment<NN>[] = [], partial = false) {
+  static addTree<NN extends string = string>(tree: Tree<NN>, fragments: readonly TreeFragment<NN>[] = [], partial = false) {
     let result = [new TreeFragment(0, tree.length, tree, 0, partial ? Open.End : 0)]
     for (let f of fragments) if (f.to > tree.length) result.push(f)
     return result
@@ -1198,7 +1198,7 @@ export class TreeFragment<NN extends string> {
 
 /// Interface used to represent an in-progress parse, which can be
 /// moved forward piece-by-piece.
-export interface PartialParse<NN extends string> {
+export interface PartialParse<NN extends string = string> {
   /// Advance the parse state by some amount.
   advance(): Tree<NN> | null
   /// The current parse position.
@@ -1210,7 +1210,7 @@ export interface PartialParse<NN extends string> {
 
 /// A parse context is an object providing additional information to the
 /// parser. It is passed through to nested parsers.
-export interface ParseContext<NN extends string> {
+export interface ParseContext<NN extends string = string> {
   /// A set of fragments from a previous parse to be used for incremental
   /// parsing. These should be aligned with the current document
   /// (through a call to
