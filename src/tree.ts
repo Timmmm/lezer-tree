@@ -3,7 +3,9 @@ export const DefaultBufferLength = 1024
 
 let nextPropID = 0
 
-const CachedNode = new WeakMap<Tree, TreeNode>()
+// `any` is not ideal here but this is used for all Tree's so it has to be.
+// `unknown` would be better but that doesn't work unfortunately.
+const CachedNode = new WeakMap<Tree<any>, TreeNode<any>>()
 
 /// Each [node type](#tree.NodeType) can have metadata associated with
 /// it in props. Instances of this class represent prop names.
@@ -53,10 +55,10 @@ export class NodeProp<T> {
   /// object](#tree.NodeType^match) or function that returns undefined
   /// if the node type doesn't get this prop, and the prop's value if
   /// it does.
-  add(match: {[selector: string]: T} | ((type: NodeType) => T | undefined)): NodePropSource {
+  add<NN extends string>(match: {[selector: string]: T} | ((type: NodeType<NN>) => T | undefined)): NodePropSource {
     if (typeof match != "function") match = NodeType.match(match)
     return (type) => {
-      let result = (match as (type: NodeType) => T | undefined)(type)
+      let result = (match as (type: NodeType<NN>) => T | undefined)(type)
       return result === undefined ? null : [this, result]
     }
   }
@@ -80,7 +82,7 @@ export class NodeProp<T> {
 
 /// Type returned by [`NodeProp.add`](#tree.NodeProp.add). Describes
 /// the way a prop should be added to each node type in a node set.
-export type NodePropSource = (type: NodeType) => null | [NodeProp<any>, any]
+export type NodePropSource = (type: NodeType<any>) => null | [NodeProp<any>, any]
 
 // Note: this is duplicated in lezer/src/constants.ts
 const enum NodeFlag {
@@ -93,14 +95,14 @@ const enum NodeFlag {
 const noProps: {[propID: number]: any} = Object.create(null)
 
 /// Each node in a syntax tree has a node type associated with it.
-export class NodeType {
+export class NodeType<NN extends string> {
   /// @internal
   constructor(
     /// The name of the node type. Not necessarily unique, but if the
     /// grammar was written properly, different node types with the
     /// same name within a node set should play the same semantic
     /// role.
-    readonly name: string,
+    readonly name: NN | "",
     /// @internal
     readonly props: {readonly [prop: number]: any},
     /// The id of this node in its set. Corresponds to the term ids
@@ -109,14 +111,14 @@ export class NodeType {
     /// @internal
     readonly flags: number = 0) {}
 
-  static define(spec: {
+  static define<NN extends string>(spec: {
     /// The ID of the node type. When this type is used in a
     /// [set](#tree.NodeSet), the ID must correspond to its index in
     /// the type array.
     id: number, 
     /// The name of the node type. Leave empty to define an anonymous
     /// node.
-    name?: string,
+    name?: NN,
     /// [Node props](#tree.NodeProp) to assign to the type. The value
     /// given for any given prop should correspond to the prop's type.
     props?: readonly ([NodeProp<any>, any] | NodePropSource)[],
@@ -169,7 +171,7 @@ export class NodeType {
   }
 
   /// An empty dummy node type to use when no actual type is available.
-  static none: NodeType = new NodeType("", Object.create(null), 0, NodeFlag.Anonymous)
+  static none: NodeType<any> = new NodeType("", Object.create(null), 0, NodeFlag.Anonymous)
 
   /// Create a function from node types to arbitrary values by
   /// specifying an object whose property names are node or
@@ -177,11 +179,11 @@ export class NodeType {
   /// [`NodeProp.add`](#tree.NodeProp.add). You can put multiple
   /// names, separated by spaces, in a single property name to map
   /// multiple node names to a single value.
-  static match<T>(map: {[selector: string]: T}): (node: NodeType) => T | undefined {
+  static match<T, NN extends string>(map: {[selector: string]: T}): (node: NodeType<NN>) => T | undefined {
     let direct = Object.create(null)
     for (let prop in map)
       for (let name of prop.split(" ")) direct[name] = map[prop]
-    return (node: NodeType) => {
+    return (node: NodeType<NN>) => {
       for (let groups = node.prop(NodeProp.group), i = -1; i < (groups ? groups.length : 0); i++) {
         let found = direct[i < 0 ? node.name : groups![i]]
         if (found) return found
@@ -198,12 +200,12 @@ export class NodeType {
 /// from the same set. A set can have a maximum of 2**16 (65536)
 /// node types in it, so that the ids fit into 16-bit typed array
 /// slots.
-export class NodeSet {
+export class NodeSet<NN extends string> {
   /// Create a set with the given types. The `id` property of each
   /// type should correspond to its position within the array.
   constructor(
     /// The node types in this set, by id.
-    readonly types: readonly NodeType[]
+    readonly types: readonly NodeType<NN>[]
   ) {
     for (let i = 0; i < types.length; i++) if (types[i].id != i)
       throw new RangeError("Node type ids should correspond to array positions when creating a node set")
@@ -212,8 +214,8 @@ export class NodeSet {
   /// Create a copy of this set with some node properties added. The
   /// arguments to this method should be created with
   /// [`NodeProp.add`](#tree.NodeProp.add).
-  extend(...props: NodePropSource[]): NodeSet {
-    let newTypes: NodeType[] = []
+  extend(...props: NodePropSource[]): NodeSet<NN> {
+    let newTypes: NodeType<NN>[] = []
     for (let type of this.types) {
       let newProps = null
       for (let source of props) {
@@ -242,15 +244,15 @@ export class NodeSet {
 /// use the `TreeCursor` interface instead, which provides a view on
 /// some part of this data structure, and can be used to move around
 /// to adjacent nodes.
-export class Tree {
+export class Tree<NN extends string> {
   /// Construct a new tree. You usually want to go through
   /// [`Tree.build`](#tree.Tree^build) instead.
   constructor(
-    readonly type: NodeType,
+    readonly type: NodeType<NN>,
     /// The tree's child nodes. Children small enough to fit in a
     /// `TreeBuffer will be represented as such, other children can be
     /// further `Tree` instances with their own internal structure.
-    readonly children: readonly (Tree | TreeBuffer)[],
+    readonly children: readonly (Tree<NN> | TreeBuffer<NN>)[],
     /// The positions (offsets relative to the start of this tree) of
     /// the children.
     readonly positions: readonly number[],
@@ -272,9 +274,9 @@ export class Tree {
   /// Get a [tree cursor](#tree.TreeCursor) rooted at this tree. When
   /// `pos` is given, the cursor is [moved](#tree.TreeCursor.moveTo)
   /// to the given position and side.
-  cursor(pos?: number, side: -1 | 0 | 1 = 0): TreeCursor {
-    let scope = (pos != null && CachedNode.get(this)) || (this.topNode as TreeNode)
-    let cursor = new TreeCursor(scope)
+  cursor(pos?: number, side: -1 | 0 | 1 = 0): TreeCursor<NN> {
+    let scope = (pos != null && CachedNode.get(this)) || (this.topNode as TreeNode<NN>)
+    let cursor = new TreeCursor<NN>(scope)
     if (pos != null) {
       cursor.moveTo(pos, side)
       CachedNode.set(this, cursor._tree)
@@ -285,14 +287,14 @@ export class Tree {
   /// Get a [tree cursor](#tree.TreeCursor) that, unlike regular
   /// cursors, doesn't skip [anonymous](#tree.NodeType.isAnonymous)
   /// nodes.
-  fullCursor(): TreeCursor {
-    return new TreeCursor(this.topNode as TreeNode, true)
+  fullCursor(): TreeCursor<NN> {
+    return new TreeCursor(this.topNode as TreeNode<NN>, true)
   }
 
   /// Get a [syntax node](#tree.SyntaxNode) object for the top of the
   /// tree.
-  get topNode(): SyntaxNode {
-    return new TreeNode(this, 0, 0, null)
+  get topNode(): SyntaxNode<NN> {
+    return new TreeNode<NN>(this, 0, 0, null)
   }
 
   /// Get the [syntax node](#tree.SyntaxNode) at the given position.
@@ -310,8 +312,8 @@ export class Tree {
   /// leaving the node. When `enter` returns `false`, the given node
   /// will not have its children iterated over (or `leave` called).
   iterate(spec: {
-    enter(type: NodeType, from: number, to: number): false | void,
-    leave?(type: NodeType, from: number, to: number): void,
+    enter(type: NodeType<NN>, from: number, to: number): false | void,
+    leave?(type: NodeType<NN>, from: number, to: number): void,
     from?: number,
     to?: number
   }) {
@@ -341,18 +343,18 @@ export class Tree {
 
   /// Build a tree from a postfix-ordered buffer of node information,
   /// or a cursor over such a buffer.
-  static build(data: BuildData) { return buildTree(data) }
+  static build<NN extends string>(data: BuildData<NN>) { return buildTree(data) }
 }
 
 // For trees that need a context hash attached, we're using this
 // kludge which assigns an extra property directly after
 // initialization (creating a single new object shape).
-function withHash(tree: Tree, hash: number) {
+function withHash<NN extends string>(tree: Tree<NN>, hash: number) {
   if (hash) (tree as any).contextHash = hash
   return tree
 }
 
-type BuildData = {
+type BuildData<NN extends string> = {
   /// The buffer or buffer cursor to read the node data from.
   ///
   /// When this is an array, it should contain four values for every
@@ -375,7 +377,7 @@ type BuildData = {
   ///     [11, 0, 1, 4, 12, 2, 4, 4, 10, 0, 4, 12]
   buffer: BufferCursor | readonly number[],
   /// The node types to use.
-  nodeSet: NodeSet,
+  nodeSet: NodeSet<NN>,
   /// The id of the top node type, if any.
   topID?: number,
   /// The position the tree should start at. Defaults to 0.
@@ -387,7 +389,7 @@ type BuildData = {
   /// [`DefaultBufferLength`](#tree.DefaultBufferLength).
   maxBufferLength?: number,
   /// An optional set of reused nodes that the buffer can refer to.
-  reused?: (Tree | TreeBuffer)[],
+  reused?: (Tree<NN> | TreeBuffer<NN>)[],
   /// The first node type that indicates repeat constructs in this
   /// grammar.
   minRepeatType?: number
@@ -397,7 +399,7 @@ type BuildData = {
 /// node. In such a buffer, nodes are stored in prefix order (parents
 /// before children, with the endIndex of the parent indicating which
 /// children belong to it)
-export class TreeBuffer {
+export class TreeBuffer<NN extends string> {
   /// Create a tree buffer @internal
   constructor(
     /// @internal
@@ -405,7 +407,7 @@ export class TreeBuffer {
     /// The total length of the group of nodes in the buffer.
     readonly length: number,
     /// @internal
-    readonly set: NodeSet,
+    readonly set: NodeSet<NN>,
     /// An optional repeat node type associated with the buffer.
     readonly type = NodeType.none
   ) {}
@@ -423,7 +425,8 @@ export class TreeBuffer {
   /// @internal
   childString(index: number): string {
     let id = this.buffer[index], endIndex = this.buffer[index + 3]
-    let type = this.set.types[id], result = type.name
+    let type = this.set.types[id]
+    let result: string = type.name
     if (/\W/.test(result) && !type.isError) result = JSON.stringify(result)
     index += 4
     if (endIndex == index) return result
@@ -463,36 +466,36 @@ const enum After { None = -1e8 }
 /// tree. When iterating over large amounts of nodes, you may want to
 /// use a mutable [cursor](#tree.TreeCursor) instead, which is more
 /// efficient.
-export interface SyntaxNode {
+export interface SyntaxNode<NN extends string> {
   /// The type of the node.
-  type: NodeType
+  type: NodeType<NN>
   /// The name of the node (`.type.name`).
-  name: string
+  name: NN | ""
   /// The start position of the node.
   from: number
   /// The end position of the node.
   to: number
 
   /// The node's parent node, if any.
-  parent: SyntaxNode | null
+  parent: SyntaxNode<NN> | null
   /// The first child, if the node has children.
-  firstChild: SyntaxNode | null
+  firstChild: SyntaxNode<NN> | null
   /// The node's last child, if available.
-  lastChild: SyntaxNode | null
+  lastChild: SyntaxNode<NN> | null
   /// The first child that starts at or after `pos`.
-  childAfter(pos: number): SyntaxNode | null
+  childAfter(pos: number): SyntaxNode<NN> | null
   /// The last child that ends at or before `pos`.
-  childBefore(pos: number): SyntaxNode | null
+  childBefore(pos: number): SyntaxNode<NN> | null
   /// This node's next sibling, if any.
-  nextSibling: SyntaxNode | null
+  nextSibling: SyntaxNode<NN> | null
   /// This node's previous sibling.
-  prevSibling: SyntaxNode | null
+  prevSibling: SyntaxNode<NN> | null
   /// A [tree cursor](#tree.TreeCursor) starting at this node.
-  cursor: TreeCursor
+  cursor: TreeCursor<NN>
   /// Find the node around, before (if `side` is -1), or after (`side`
   /// is 1) the given position. Will look in parent nodes if the
   /// position is outside this node.
-  resolve(pos: number, side?: -1 | 0 | 1): SyntaxNode
+  resolve(pos: number, side?: -1 | 0 | 1): SyntaxNode<NN>
 
   /// Get the first child of the given type (which may be a [node
   /// name](#tree.NodeProp.name) or a [group
@@ -500,18 +503,18 @@ export interface SyntaxNode {
   /// return children that occur somewhere after a node with that name
   /// or group. If `after` is non-null, only return children that
   /// occur somewhere before a node with that name or group.
-  getChild(type: string | number, before?: string | number | null, after?: string | number | null): SyntaxNode | null
+  getChild(type: string | number, before?: string | number | null, after?: string | number | null): SyntaxNode<NN> | null
 
   /// Like [`getChild`](#tree.SyntaxNode.getChild), but return all
   /// matching children, not just the first.
-  getChildren(type: string | number, before?: string | number | null, after?: string | number | null): SyntaxNode[]
+  getChildren(type: string | number, before?: string | number | null, after?: string | number | null): SyntaxNode<NN>[]
 }
 
-class TreeNode implements SyntaxNode {
-  constructor(readonly node: Tree,
+class TreeNode<NN extends string> implements SyntaxNode<NN> {
+  constructor(readonly node: Tree<NN>,
               readonly from: number,
               readonly index: number,
-              readonly _parent: TreeNode | null) {}
+              readonly _parent: TreeNode<NN> | null) {}
 
   get type() { return this.node.type }
 
@@ -519,8 +522,8 @@ class TreeNode implements SyntaxNode {
 
   get to() { return this.from + this.node.length }
 
-  nextChild(i: number, dir: 1 | -1, after: number, full = false): TreeNode | BufferNode | null {
-    for (let parent: TreeNode = this;;) {
+  nextChild(i: number, dir: 1 | -1, after: number, full = false): TreeNode<NN> | BufferNode<NN> | null {
+    for (let parent: TreeNode<NN> = this;;) {
       for (let {children, positions} = parent.node, e = dir > 0 ? children.length : -1; i != e; i += dir) {
         let next = children[i], start = positions[i] + parent.from
         if (after != After.None && (dir < 0 ? start >= after : start + next.length <= after))
@@ -547,19 +550,19 @@ class TreeNode implements SyntaxNode {
   childBefore(pos: number) { return this.nextChild(this.node.children.length - 1, -1, pos) }
 
   nextSignificantParent() {
-    let val: TreeNode = this
+    let val: TreeNode<NN> = this
     while (val.type.isAnonymous && val._parent) val = val._parent
     return val
   }
 
-  get parent() {
+  get parent(): TreeNode<NN> | null {
     return this._parent ? this._parent.nextSignificantParent() : null
   }
 
-  get nextSibling() {
+  get nextSibling(): TreeNode<NN> | BufferNode<NN> | null {
     return this._parent ? this._parent.nextChild(this.index + 1, 1, -1) : null
   }
-  get prevSibling() {
+  get prevSibling(): TreeNode<NN> | BufferNode<NN> | null {
     return this._parent ? this._parent.nextChild(this.index - 1, -1, -1) : null
   }
 
@@ -569,12 +572,12 @@ class TreeNode implements SyntaxNode {
     return this.cursor.moveTo(pos, side).node
   }
 
-  getChild(type: string | number, before: string | number | null = null, after: string | number | null = null) {
+  getChild(type: string | number, before: string | number | null = null, after: string | number | null = null): SyntaxNode<NN> | null {
     let r = getChildren(this, type, before, after)
     return r.length ? r[0] : null
   }
 
-  getChildren(type: string | number, before: string | number | null = null, after: string | number | null = null) {
+  getChildren(type: string | number, before: string | number | null = null, after: string | number | null = null): SyntaxNode<NN>[] {
     return getChildren(this, type, before, after)
   }
 
@@ -582,8 +585,8 @@ class TreeNode implements SyntaxNode {
   toString() { return this.node.toString() }
 }
 
-function getChildren(node: SyntaxNode, type: string | number, before: string | number | null, after: string | number | null): SyntaxNode[] {
-  let cur = node.cursor, result: SyntaxNode[] = []
+function getChildren<NN extends string>(node: SyntaxNode<NN>, type: string | number, before: string | number | null, after: string | number | null): SyntaxNode<NN>[] {
+  let cur = node.cursor, result: SyntaxNode<NN>[] = []
   if (!cur.firstChild()) return result
   if (before != null) while (!cur.type.is(before)) if (!cur.nextSibling()) return result
   for (;;) {
@@ -593,15 +596,15 @@ function getChildren(node: SyntaxNode, type: string | number, before: string | n
   }
 }
 
-class BufferContext {
-  constructor(readonly parent: TreeNode,
-              readonly buffer: TreeBuffer,
+class BufferContext<NN extends string> {
+  constructor(readonly parent: TreeNode<NN>,
+              readonly buffer: TreeBuffer<NN>,
               readonly index: number,
               readonly start: number) {}
 }
 
-class BufferNode implements SyntaxNode {
-  type: NodeType
+class BufferNode<NN extends string> implements SyntaxNode<NN> {
+  type: NodeType<NN>
 
   get name() { return this.type.name }
 
@@ -609,13 +612,13 @@ class BufferNode implements SyntaxNode {
 
   get to() { return this.context.start + this.context.buffer.buffer[this.index + 2] }
 
-  constructor(readonly context: BufferContext,
-              readonly _parent: BufferNode | null,
+  constructor(readonly context: BufferContext<NN>,
+              readonly _parent: BufferNode<NN> | null,
               readonly index: number) {
     this.type = context.buffer.set.types[context.buffer.buffer[index]]
   }
 
-  child(dir: 1 | -1, after: number): BufferNode | null {
+  child(dir: 1 | -1, after: number): BufferNode<NN> | null {
     let {buffer} = this.context
     let index = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], dir,
                                  after == After.None ? After.None : after - this.context.start)
@@ -628,7 +631,7 @@ class BufferNode implements SyntaxNode {
   childAfter(pos: number) { return this.child(1, pos) }
   childBefore(pos: number) { return this.child(-1, pos) }
 
-  get parent() {
+  get parent(): TreeNode<NN> | BufferNode<NN> | null {
     return this._parent || this.context.parent.nextSignificantParent()
   }
 
@@ -636,7 +639,7 @@ class BufferNode implements SyntaxNode {
     return this._parent ? null : this.context.parent.nextChild(this.context.index + dir, dir, -1)
   }
 
-  get nextSibling(): SyntaxNode | null {
+  get nextSibling(): SyntaxNode<NN> | null {
     let {buffer} = this.context
     let after = buffer.buffer[this.index + 3]
     if (after < (this._parent ? buffer.buffer[this._parent.index + 3] : buffer.buffer.length))
@@ -644,7 +647,7 @@ class BufferNode implements SyntaxNode {
     return this.externalSibling(1)
   }
 
-  get prevSibling(): SyntaxNode | null {
+  get prevSibling(): SyntaxNode<NN> | null {
     let {buffer} = this.context
     let parentStart = this._parent ? this._parent.index + 4 : 0
     if (this.index == parentStart) return this.externalSibling(-1)
@@ -660,21 +663,21 @@ class BufferNode implements SyntaxNode {
   /// @internal
   toString() { return this.context.buffer.childString(this.index) }
 
-  getChild(type: string | number, before: string | number | null = null, after: string | number | null = null) {
+  getChild(type: string | number, before: string | number | null = null, after: string | number | null = null): SyntaxNode<NN> | null {
     let r = getChildren(this, type, before, after)
     return r.length ? r[0] : null
   }
 
-  getChildren(type: string | number, before: string | number | null = null, after: string | number | null = null) {
+  getChildren(type: string | number, before: string | number | null = null, after: string | number | null = null): SyntaxNode<NN>[] {
     return getChildren(this, type, before, after)
   }
 }
 
 /// A tree cursor object focuses on a given node in a syntax tree, and
 /// allows you to move to adjacent nodes.
-export class TreeCursor {
+export class TreeCursor<NN extends string> {
   /// The node's type.
-  type!: NodeType
+  type!: NodeType<NN>
 
   /// Shorthand for `.type.name`.
   get name() { return this.type.name }
@@ -686,26 +689,26 @@ export class TreeCursor {
   to!: number
 
   /// @internal
-  _tree!: TreeNode
-  private buffer: BufferContext | null = null
+  _tree!: TreeNode<NN>
+  private buffer: BufferContext<NN> | null = null
   private stack: number[] = []
   private index: number = 0
-  private bufferNode: BufferNode | null = null
+  private bufferNode: BufferNode<NN> | null = null
 
   /// @internal
-  constructor(node: TreeNode | BufferNode, readonly full = false) {
+  constructor(node: TreeNode<NN> | BufferNode<NN>, readonly full = false) {
     if (node instanceof TreeNode) {
       this.yieldNode(node)
     } else {
       this._tree = node.context.parent
       this.buffer = node.context
-      for (let n: BufferNode | null = node._parent; n; n = n._parent) this.stack.unshift(n.index)
+      for (let n: BufferNode<NN> | null = node._parent; n; n = n._parent) this.stack.unshift(n.index)
       this.bufferNode = node
       this.yieldBuf(node.index)
     }
   }
 
-  private yieldNode(node: TreeNode | null) {
+  private yieldNode(node: TreeNode<NN> | null) {
     if (!node) return false
     this._tree = node
     this.type = node.type
@@ -714,7 +717,7 @@ export class TreeCursor {
     return true
   }
 
-  private yieldBuf(index: number, type?: NodeType) {
+  private yieldBuf(index: number, type?: NodeType<NN>) {
     this.index = index
     let {start, buffer} = this.buffer!
     this.type = type || buffer.set.types[buffer.buffer[index]]
@@ -723,7 +726,7 @@ export class TreeCursor {
     return true
   }
 
-  private yield(node: TreeNode | BufferNode | null) {
+  private yield(node: TreeNode<NN> | BufferNode<NN> | null) {
     if (!node) return false
     if (node instanceof TreeNode) {
       this.buffer = null
@@ -799,7 +802,7 @@ export class TreeCursor {
   prevSibling() { return this.sibling(-1) }
 
   private atLastNode(dir: 1 | -1) {
-    let index, parent: TreeNode | null, {buffer} = this
+    let index, parent: TreeNode<NN> | null, {buffer} = this
     if (buffer) {
       if (dir > 0) {
         if (this.index < buffer.buffer.buffer.length) return false
@@ -865,13 +868,13 @@ export class TreeCursor {
 
   /// Get a [syntax node](#tree.SyntaxNode) at the cursor's current
   /// position.
-  get node(): SyntaxNode {
+  get node(): SyntaxNode<NN> {
     if (!this.buffer) return this._tree
     
-    let cache = this.bufferNode, result: BufferNode | null = null, depth = 0
+    let cache = this.bufferNode, result: BufferNode<NN> | null = null, depth = 0
     if (cache && cache.context == this.buffer) {
       scan: for (let index = this.index, d = this.stack.length; d >= 0;) {
-        for (let c: BufferNode | null = cache; c; c = c._parent) if (c.index == index) {
+        for (let c: BufferNode<NN> | null = cache; c; c = c._parent) if (c.index == index) {
           if (index == this.index) return c
           result = c
           depth = d + 1
@@ -887,12 +890,12 @@ export class TreeCursor {
   /// Get the [tree](#tree.Tree) that represents the current node, if
   /// any. Will return null when the node is in a [tree
   /// buffer](#tree.TreeBuffer).
-  get tree(): Tree | null {
+  get tree(): Tree<NN> | null {
     return this.buffer ? null : this._tree.node
   }
 }
 
-function hasChild(tree: Tree): boolean {
+function hasChild<NN extends string>(tree: Tree<NN>): boolean {
   return tree.children.some(ch => !ch.type.isAnonymous || ch instanceof TreeBuffer || hasChild(ch))
 }
 
@@ -936,18 +939,18 @@ class FlatBufferCursor implements BufferCursor {
 
 const BalanceBranchFactor = 8
 
-function buildTree(data: BuildData) {
+function buildTree<NN extends string>(data: BuildData<NN>) {
   let {buffer, nodeSet, topID = 0,
        maxBufferLength = DefaultBufferLength,
        reused = [],
-       minRepeatType = nodeSet.types.length} = data as BuildData
+       minRepeatType = nodeSet.types.length} = data as BuildData<NN>
   let cursor = Array.isArray(buffer) ? new FlatBufferCursor(buffer, buffer.length) : buffer as BufferCursor
   let types = nodeSet.types
 
   let contextHash = 0
 
   function takeNode(parentStart: number, minPos: number,
-                    children: (Tree | TreeBuffer)[], positions: number[],
+                    children: (Tree<NN> | TreeBuffer<NN>)[], positions: number[],
                     inRepeat: number) {
     let {id, start, end, size} = cursor
     let startPos = start - parentStart
@@ -974,7 +977,7 @@ function buildTree(data: BuildData) {
     } else { // Make it a node
       let endPos = cursor.pos - size
       cursor.next()
-      let localChildren: (Tree | TreeBuffer)[] = [], localPositions: number[] = []
+      let localChildren: (Tree<NN> | TreeBuffer<NN>)[] = [], localPositions: number[] = []
       let localInRepeat = id >= minRepeatType ? id : -1
       while (cursor.pos > endPos) {
         if (cursor.id == localInRepeat) cursor.next()
@@ -1052,18 +1055,18 @@ function buildTree(data: BuildData) {
     return index
   }
 
-  let children: (Tree | TreeBuffer)[] = [], positions: number[] = []
+  let children: (Tree<NN> | TreeBuffer<NN>)[] = [], positions: number[] = []
   while (cursor.pos > 0) takeNode(data.start || 0, 0, children, positions, -1)
   let length = data.length ?? (children.length ? positions[0] + children[0].length : 0)
   return new Tree(types[topID], children.reverse(), positions.reverse(), length)
 }
 
-function balanceRange(outerType: NodeType, innerType: NodeType,
-                      children: readonly (Tree | TreeBuffer)[], positions: readonly number[],
+function balanceRange<NN extends string>(outerType: NodeType<NN>, innerType: NodeType<NN>,
+                      children: readonly (Tree<NN> | TreeBuffer<NN>)[], positions: readonly number[],
                       from: number, to: number,
                       start: number, maxBufferLength: number,
-                      length: number, contextHash: number): Tree {
-  let localChildren: (Tree | TreeBuffer)[] = [], localPositions: number[] = []
+                      length: number, contextHash: number): Tree<NN> {
+  let localChildren: (Tree<NN> | TreeBuffer<NN>)[] = [], localPositions: number[] = []
   if (length <= maxBufferLength) {
     for (let i = from; i < to; i++) {
       localChildren.push(children[i])
@@ -1103,7 +1106,7 @@ function balanceRange(outerType: NodeType, innerType: NodeType,
   return withHash(new Tree(outerType, localChildren, localPositions, length), contextHash)
 }
 
-function containsType(nodes: readonly (Tree | TreeBuffer)[], type: NodeType) {
+function containsType<NN extends string>(nodes: readonly (Tree<NN> | TreeBuffer<NN>)[], type: NodeType<NN>) {
   for (let elt of nodes) if (elt.type == type) return true
   return false
 }
@@ -1130,7 +1133,7 @@ const enum Open { Start = 1, End = 2 }
 /// in new parses. Use the static
 /// [`applyChanges`](#tree.TreeFragment^applyChanges) method to update
 /// fragments for document changes.
-export class TreeFragment {
+export class TreeFragment<NN extends string> {
   constructor(
     /// The start of the unchanged range pointed to by this fragment.
     /// This refers to an offset in the _updated_ document (as opposed
@@ -1139,7 +1142,7 @@ export class TreeFragment {
     /// The end of the unchanged range.
     readonly to: number,
     /// The tree that this fragment is based on.
-    readonly tree: Tree,
+    readonly tree: Tree<NN>,
     /// The offset between the fragment's tree and the document that
     /// this fragment can be used against. Add this when going from
     /// document to tree positions, subtract it to go from tree to
@@ -1155,15 +1158,15 @@ export class TreeFragment {
   /// Apply a set of edits to an array of fragments, removing or
   /// splitting fragments as necessary to remove edited ranges, and
   /// adjusting offsets for fragments that moved.
-  static applyChanges(fragments: readonly TreeFragment[], changes: readonly ChangedRange[], minGap = 128) {
+  static applyChanges<NN extends string>(fragments: readonly TreeFragment<NN>[], changes: readonly ChangedRange[], minGap = 128) {
     if (!changes.length) return fragments
-    let result: TreeFragment[] = []
+    let result: TreeFragment<NN>[] = []
     let fI = 1, nextF = fragments.length ? fragments[0] : null
     for (let cI = 0, pos = 0, off = 0;; cI++) {
       let nextC = cI < changes.length ? changes[cI] : null
       let nextPos = nextC ? nextC.fromA : 1e9
       if (nextPos - pos >= minGap) while (nextF && nextF.from < nextPos) {
-        let cut: TreeFragment | null = nextF
+        let cut: TreeFragment<NN> | null = nextF
         if (pos >= cut.from || nextPos <= cut.to || off) {
           let fFrom = Math.max(cut.from, pos) - off, fTo = Math.min(cut.to, nextPos) - off
           cut = fFrom >= fTo ? null :
@@ -1186,7 +1189,7 @@ export class TreeFragment {
   /// with a tree with content from the new tree. When `partial` is
   /// true, the parse is treated as incomplete, and the token at its
   /// end is not included in [`safeTo`](#tree.TreeFragment.safeTo).
-  static addTree(tree: Tree, fragments: readonly TreeFragment[] = [], partial = false) {
+  static addTree<NN extends string>(tree: Tree<NN>, fragments: readonly TreeFragment<NN>[] = [], partial = false) {
     let result = [new TreeFragment(0, tree.length, tree, 0, partial ? Open.End : 0)]
     for (let f of fragments) if (f.to > tree.length) result.push(f)
     return result
@@ -1195,19 +1198,19 @@ export class TreeFragment {
 
 /// Interface used to represent an in-progress parse, which can be
 /// moved forward piece-by-piece.
-export interface PartialParse {
+export interface PartialParse<NN extends string> {
   /// Advance the parse state by some amount.
-  advance(): Tree | null
+  advance(): Tree<NN> | null
   /// The current parse position.
   pos: number
   /// Get the currently parsed content as a tree, even though the
   /// parse hasn't finished yet.
-  forceFinish(): Tree
+  forceFinish(): Tree<NN>
 }
 
 /// A parse context is an object providing additional information to the
 /// parser. It is passed through to nested parsers.
-export interface ParseContext {
+export interface ParseContext<NN extends string> {
   /// A set of fragments from a previous parse to be used for incremental
   /// parsing. These should be aligned with the current document
   /// (through a call to
@@ -1216,7 +1219,7 @@ export interface ParseContext {
   /// will try to reuse nodes from the fragments in the new parse,
   /// greatly speeding up the parse when it can do so for most of the
   /// document.
-  fragments?: readonly TreeFragment[]
+  fragments?: readonly TreeFragment<NN>[]
 }
 
 /// This is the interface the parser uses to access the document. It
